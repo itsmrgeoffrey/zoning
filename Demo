@@ -1,0 +1,56 @@
+/**
+ * ZONING v1.0 — Zone 1 Demo
+ * Purpose: Establish cryptographic device identity
+ */
+
+const crypto = require('crypto');
+
+/**
+ * DEVICE: Generate a device keypair
+ * In production this happens inside Secure Enclave / Android Keystore
+ */
+function generateDeviceKeypair() {
+  const { publicKey, privateKey } = crypto.generateKeyPairSync('ec', {
+    namedCurve: 'prime256v1'
+  });
+
+  return { publicKey, privateKey };
+}
+
+/**
+ * DEVICE: Create a device identity object
+ */
+function createDeviceIdentity(userId) {
+  const { publicKey, privateKey } = generateDeviceKeypair();
+
+  const deviceId = crypto.randomUUID();
+
+  return {
+    userId,
+    deviceId,
+    publicKey,
+    privateKey
+  };
+}
+
+/**
+ * BACKEND: Register device and issue Zone 1 Assertion
+ */
+function issueZone1Assertion(deviceIdentity) {
+  const zone1Assertion = {
+    zone: 1,
+    userId: deviceIdentity.userId,
+    deviceId: deviceIdentity.deviceId,
+    issuedAt: Date.now()
+  };
+
+  return zone1Assertion;
+}
+
+/**
+ * ---- DEMO FLOW ----
+ */
+const device = createDeviceIdentity('alice');
+const zone1Assertion = issueZone1Assertion(device);
+
+console.log('Zone 1 Assertion:', zone1Assertion);
