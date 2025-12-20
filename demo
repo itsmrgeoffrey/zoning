@@ -1,0 +1,244 @@
+/**
+ * ZONING v1.0 — Zone 1 Demo
+ * Purpose: Establish cryptographic device identity
+ */
+
+const crypto = require('crypto');
+
+/**
+ * DEVICE: Generate a device keypair
+ * In production this happens inside Secure Enclave / Android Keystore
+ */
+function generateDeviceKeypair() {
+  const { publicKey, privateKey } = crypto.generateKeyPairSync('ec', {
+    namedCurve: 'prime256v1'
+  });
+
+  return { publicKey, privateKey };
+}
+
+/**
+ * DEVICE: Create a device identity object
+ */
+function createDeviceIdentity(userId) {
+  const { publicKey, privateKey } = generateDeviceKeypair();
+
+  const deviceId = crypto.randomUUID();
+
+  return {
+    userId,
+    deviceId,
+    publicKey,
+    privateKey
+  };
+}
+
+/**
+ * BACKEND: Register device and issue Zone 1 Assertion
+ */
+function issueZone1Assertion(deviceIdentity) {
+  const zone1Assertion = {
+    zone: 1,
+    userId: deviceIdentity.userId,
+    deviceId: deviceIdentity.deviceId,
+    issuedAt: Date.now()
+  };
+
+  return zone1Assertion;
+}
+
+/**
+ * ---- DEMO FLOW ----
+ */
+
+/**
+ * ZONING v1.0 — Zone 2 Demo
+ * Purpose: Prove user intent via deterministic payload hashing
+ *
+ * NOTE:
+ * - Reference / demo code only
+ * - Not production-ready
+ * - Focuses on intent, not transport or storage
+ */
+
+const crypto = require('crypto');
+
+/**
+ * Canonicalize transaction payload
+ * Ensures the same payload always produces the same hash
+ */
+function canonicalizePayload(payload) {
+  return JSON.stringify(payload, Object.keys(payload).sort());
+}
+
+/**
+ * Create a transaction hash (txhash)
+ * This hash represents EXACTLY what the user approved
+ */
+function createTxHash({ payload, deviceId, zone1AssertionId, nonce }) {
+  const canonicalPayload = canonicalizePayload(payload);
+
+  const dataToHash = [
+    canonicalPayload,
+    deviceId,
+    zone1AssertionId,
+    nonce
+  ].join('|');
+
+  return crypto
+    .createHash('sha256')
+    .update(dataToHash)
+    .digest('hex');
+}
+
+/**
+ * Device signs the txhash
+ * This signature is the cryptographic proof of intent
+ */
+function signTxHash(txhash, privateKey) {
+  const signer = crypto.createSign('SHA256');
+  signer.update(txhash);
+  signer.end();
+
+  return signer.sign(privateKey, 'hex');
+}
+
+/**
+ * ---- DEMO FLOW ----
+ */
+
+// Example transaction Alice sees on her screen
+const transactionPayload = {
+  amount: 10,
+  currency: 'USD',
+  to: 'AliceFriendAccount'
+};
+
+// Values coming from Zone 1
+const deviceId = 'device-123';
+const zone1AssertionId = 'zone1-assertion-abc';
+
+// One-time nonce to prevent replay
+const nonce = crypto.randomUUID();
+
+// Device computes txhash
+const txhash = createTxHash({
+  payload: transactionPayload,
+  deviceId,
+  zone1AssertionId,
+  nonce
+});
+
+// Simulated device private key (from Zone 1 demo)
+const { privateKey } = crypto.generateKeyPairSync('ec', {
+  namedCurve: 'prime256v1'
+});
+
+// Device signs txhash
+const intentSignature = signTxHash(txhash, privateKey);
+
+console.log('txhash:', txhash);
+console.log('intent signature:', intentSignature);
+
+const device = createDeviceIdentity('alice');
+const zone1Assertion = issueZone1Assertion(device);
+
+console.log('Zone 1 Assertion:', zone1Assertion);
+
+
+/**
+ * ZONING v1.0 — Zone 3 Demo
+ * Purpose: Explicit bank authorization before execution
+ *
+ * NOTE:
+ * - Reference / demo code only
+ * - Not production-ready
+ * - Simulates bank-side authorization logic
+ */
+
+const crypto = require('crypto');
+
+/**
+ * Bank generates its own signing keypair
+ * In production this lives in HSM / KMS
+ */
+function generateBankKeypair() {
+  return crypto.generateKeyPairSync('ec', {
+    namedCurve: 'prime256v1'
+  });
+}
+
+/**
+ * Create Final Authorization Token (FAT)
+ * This represents the bank explicitly approving execution
+ */
+function createFinalAuthorizationToken({
+  txhash,
+  zone1AssertionId,
+  transactionRef,
+  bankPrivateKey
+}) {
+  const fatPayload = {
+    txhash,
+    zone1AssertionId,
+    transactionRef,
+    issuedAt: Date.now(),
+    expiresAt: Date.now() + 60_000 // valid for 60 seconds
+  };
+
+  const canonicalFat = JSON.stringify(fatPayload, Object.keys(fatPayload).sort());
+
+  const signer = crypto.createSign('SHA256');
+  signer.update(canonicalFat);
+  signer.end();
+
+  const signature = signer.sign(bankPrivateKey, 'hex');
+
+  return {
+    fatPayload,
+    signature
+  };
+}
+
+/**
+ * Verify FAT before execution
+ */
+function verifyFinalAuthorizationToken(fat, bankPublicKey) {
+  const canonicalFat = JSON.stringify(
+    fat.fatPayload,
+    Object.keys(fat.fatPayload).sort()
+  );
+
+  const verifier = crypto.createVerify('SHA256');
+  verifier.update(canonicalFat);
+  verifier.end();
+
+  return verifier.verify(bankPublicKey, fat.signature, 'hex');
+}
+
+/**
+ * ---- DEMO FLOW ----
+ */
+
+// Inputs coming from Zone 2 (already verified)
+const txhash = 'verified-txhash-from-zone2';
+const zone1AssertionId = 'zone1-assertion-abc';
+const transactionRef = 'txn-789';
+
+// Bank setup
+const { publicKey: bankPublicKey, privateKey: bankPrivateKey } =
+  generateBankKeypair();
+
+// Bank issues Final Authorization Token
+const fat = createFinalAuthorizationToken({
+  txhash,
+  zone1AssertionId,
+  transactionRef,
+  bankPrivateKey
+});
+
+// Execution system verifies FAT
+const isAuthorized = verifyFinalAuthorizationToken(fat, bankPublicKey);
+
+console.log('Final Authorization Valid:', isAuthorized);
+
