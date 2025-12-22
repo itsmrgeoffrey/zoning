@@ -22,7 +22,6 @@ function generateDeviceKeypair() {
  */
 function createDeviceIdentity(userId) {
   const { publicKey, privateKey } = generateDeviceKeypair();
-
   const deviceId = crypto.randomUUID();
 
   return {
@@ -35,33 +34,33 @@ function createDeviceIdentity(userId) {
 
 /**
  * BACKEND: Register device and issue Zone 1 Assertion
+ * NOTE:
+ * - Zone 1 grants access ONLY
+ * - It MUST NOT be treated as transactional authority
  */
 function issueZone1Assertion(deviceIdentity) {
-  const zone1Assertion = {
+  return {
     zone: 1,
     userId: deviceIdentity.userId,
     deviceId: deviceIdentity.deviceId,
     issuedAt: Date.now()
   };
-
-  return zone1Assertion;
 }
 
 /**
- * ---- DEMO FLOW ----
- */
 
-/**
+
+ * ---------------------------------------------------
  * ZONING v1.0 — Zone 2 Demo
- * Purpose: Prove user intent via deterministic payload hashing
+ * Purpose: Produce a single-use ATTEMPT RECEIPT
  *
- * NOTE:
- * - Reference / demo code only
- * - Not production-ready
- * - Focuses on intent, not transport or storage
+ * IMPORTANT:
+ * - This is NOT re-authentication
+ * - This is NOT session validation
+ * - This represents a one-time transaction attempt
+ *   performed by a logged-in human
+ * ---------------------------------------------------
  */
-
-const crypto = require('crypto');
 
 /**
  * Canonicalize transaction payload
@@ -72,8 +71,8 @@ function canonicalizePayload(payload) {
 }
 
 /**
- * Create a transaction hash (txhash)
- * This hash represents EXACTLY what the user approved
+ * Create a transaction hash (txHash)
+ * This represents EXACTLY the transaction being attempted
  */
 function createTxHash({ payload, deviceId, zone1AssertionId, nonce }) {
   const canonicalPayload = canonicalizePayload(payload);
@@ -92,12 +91,24 @@ function createTxHash({ payload, deviceId, zone1AssertionId, nonce }) {
 }
 
 /**
- * Device signs the txhash
- * This signature is the cryptographic proof of intent
+ * DEVICE: Sign txHash to produce ATTEMPT RECEIPT
+ *
+ * CRITICAL INVARIANT:
+ * - This signature MUST ONLY be produced immediately after
+ *   a live, blocking user confirmation (PIN / biometric)
+ *   at the final transaction confirmation step.
+ *
+ * - This signature is:
+ *   ✔ single-use
+ *   ✔ action-bound
+ *   ✔ proof of ATTEMPT
+ *
+ * - It is NOT session authority
+ * - It is NOT reusable
  */
-function signTxHash(txhash, privateKey) {
+function signTxHash(txHash, privateKey) {
   const signer = crypto.createSign('SHA256');
-  signer.update(txhash);
+  signer.update(txHash);
   signer.end();
 
   return signer.sign(privateKey, 'hex');
@@ -107,138 +118,57 @@ function signTxHash(txhash, privateKey) {
  * ---- DEMO FLOW ----
  */
 
-// Example transaction Alice sees on her screen
+// Example transaction Alice sees and confirms
 const transactionPayload = {
   amount: 10,
   currency: 'USD',
   to: 'AliceFriendAccount'
 };
 
-// Values coming from Zone 1
+// Values coming from Zone 1 (access already established)
 const deviceId = 'device-123';
 const zone1AssertionId = 'zone1-assertion-abc';
 
 // One-time nonce to prevent replay
 const nonce = crypto.randomUUID();
 
-// Device computes txhash
-const txhash = createTxHash({
+// Backend-prepared transaction fingerprint
+const txHash = createTxHash({
   payload: transactionPayload,
   deviceId,
   zone1AssertionId,
   nonce
 });
 
-// Simulated device private key (from Zone 1 demo)
+// Simulated device private key
 const { privateKey } = crypto.generateKeyPairSync('ec', {
   namedCurve: 'prime256v1'
 });
 
-// Device signs txhash
-const intentSignature = signTxHash(txhash, privateKey);
-
-console.log('txhash:', txhash);
-console.log('intent signature:', intentSignature);
-
-const device = createDeviceIdentity('alice');
-const zone1Assertion = issueZone1Assertion(device);
-
-console.log('Zone 1 Assertion:', zone1Assertion);
-
-
 /**
- * ZONING v1.0 — Zone 3 Demo
- * Purpose: Explicit bank authorization before execution
- *
- * NOTE:
- * - Reference / demo code only
- * - Not production-ready
- * - Simulates bank-side authorization logic
+ * USER ACTION:
+ * - User completes Face ID / PIN
+ * - Only NOW is signing permitted
  */
+const attemptReceipt = signTxHash(txHash, privateKey);
 
-const crypto = require('crypto');
+console.log('txHash:', txHash);
+console.log('attempt receipt (signature):', attemptReceipt);
 
-/**
- * Bank generates its own signing keypair
- * In production this lives in HSM / KMS
- */
-function generateBankKeypair() {
-  return crypto.generateKeyPairSync('ec', {
-    namedCurve: 'prime256v1'
-  });
-}
+// Backend receives:
+// - payload
+// - txHash
+// - nonce
+// - attemptReceipt
+// - zone1AssertionId
+//
+// Backend MUST:
+// - recompute txHash
+// - verify signature
+// - ensure single-use
+// - burn receipt before execution
 
-/**
- * Create Final Authorization Token (FAT)
- * This represents the bank explicitly approving execution
- */
-function createFinalAuthorizationToken({
-  txhash,
-  zone1AssertionId,
-  transactionRef,
-  bankPrivateKey
-}) {
-  const fatPayload = {
-    txhash,
-    zone1AssertionId,
-    transactionRef,
-    issuedAt: Date.now(),
-    expiresAt: Date.now() + 60_000 // valid for 60 seconds
-  };
-
-  const canonicalFat = JSON.stringify(fatPayload, Object.keys(fatPayload).sort());
-
-  const signer = crypto.createSign('SHA256');
-  signer.update(canonicalFat);
-  signer.end();
-
-  const signature = signer.sign(bankPrivateKey, 'hex');
-
-  return {
-    fatPayload,
-    signature
-  };
-}
-
-/**
- * Verify FAT before execution
- */
-function verifyFinalAuthorizationToken(fat, bankPublicKey) {
-  const canonicalFat = JSON.stringify(
-    fat.fatPayload,
-    Object.keys(fat.fatPayload).sort()
-  );
-
-  const verifier = crypto.createVerify('SHA256');
-  verifier.update(canonicalFat);
-  verifier.end();
-
-  return verifier.verify(bankPublicKey, fat.signature, 'hex');
-}
-
-/**
- * ---- DEMO FLOW ----
- */
-
-// Inputs coming from Zone 2 (already verified)
-const txhash = 'verified-txhash-from-zone2';
-const zone1AssertionId = 'zone1-assertion-abc';
-const transactionRef = 'txn-789';
-
-// Bank setup
-const { publicKey: bankPublicKey, privateKey: bankPrivateKey } =
-  generateBankKeypair();
-
-// Bank issues Final Authorization Token
-const fat = createFinalAuthorizationToken({
-  txhash,
-  zone1AssertionId,
-  transactionRef,
-  bankPrivateKey
-});
-
-// Execution system verifies FAT
-const isAuthorized = verifyFinalAuthorizationToken(fat, bankPublicKey);
-
-console.log('Final Authorization Valid:', isAuthorized);
+// NOTE:
+// Production deployments SHOULD use a backend-issued challenge nonce
+// to strictly enforce single-use attempt receipts and prevent replay.
 
