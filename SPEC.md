@@ -11,15 +11,15 @@ security analysis, and controlled implementation.
 ## 1. Introduction
 
 ZONING is a protocol that enforces cryptographic proof of:
-- identity (Zone 1),
-- transaction integrity (Zone 2),
-- and bank authorization (Zone 3)
+- identity and access (Zone 1),
+- single-use transaction attempt confirmation (Zone 2),
+- and controlled execution (Zone 3)
 
 before a financial transaction is executed.
 
 ZONING is designed to address systemic weaknesses in session-based
 transaction authorization models, where authentication is implicitly
-treated as proof of intent.
+treated as proof of transactional authority.
 
 ---
 
@@ -31,9 +31,10 @@ The following terms are used throughout this specification:
 - **Device Keypair**: A cryptographic keypair generated and stored on the client device.
 - **Zone 1 Assertion (Z1A)**: A backend-issued reference binding a device public key to a user.
 - **Canonical Payload**: A deterministic representation of a transaction payload.
-- **txhash**: A deterministic cryptographic hash of the canonical payload and context.
-- **Nonce**: A one-time value used to prevent replay.
-- **FAT (Final Authorization Token)**: A bank-signed authorization required for execution.
+- **txHash**: A deterministic cryptographic hash of the canonical payload and context.
+- **Nonce / Challenge**: A one-time value used to prevent replay.
+- **Attempt Receipt**: A single-use cryptographic proof that a logged-in human completed
+  the final confirmation step for an exact transaction.
 - **Execution System**: The system that performs the actual debit/credit.
 
 ---
@@ -57,15 +58,17 @@ ZONING does **not** assume:
 
 ## 4. Protocol Overview
 
-A transaction MUST NOT be executed unless all three zones complete
+A transaction MUST NOT be executed unless all required zones complete
 successfully.
+
+Authentication alone MUST NOT be treated as transactional authority.
 
 ---
 
-## 5. Zone 1 — Identity & Device Trust
+## 5. Zone 1 — Identity & Access
 
 ### 5.1 Purpose
-Zone 1 establishes cryptographic device identity.
+Zone 1 establishes cryptographic device identity and authenticated access.
 
 ### 5.2 Inputs
 - User identifier
@@ -86,105 +89,81 @@ Zone 1 establishes cryptographic device identity.
 Zone 1 guarantees that a future signature can be traced to a specific,
 registered device.
 
+Zone 1 grants access only and MUST NOT be treated as transactional authority.
+
 ---
 
-## 6. Zone 2 — Transaction Integrity
+## 6. Zone 2 — Transaction Attempt Confirmation
 
 ### 6.1 Purpose
-Zone 2 proves what exact transaction the user approved.
+Zone 2 proves that a logged-in human actively completed the final
+transaction confirmation step for an exact transaction attempt.
 
 ### 6.2 Inputs
 - Transaction payload
 - Zone 1 Assertion reference
 - Device identifier
-- Nonce
+- Nonce / backend-issued challenge
 
 ### 6.3 Process
 1. The client MUST canonicalize the transaction payload deterministically.
-2. The client MUST compute a txhash using:
+2. The client MUST compute a txHash using:
    - canonical payload
    - device identifier
-   - nonce
+   - nonce / challenge
    - Zone 1 Assertion reference
-3. The client MUST sign the txhash using the device private key.
-4. The client MUST submit:
-   - payload
-   - nonce
-   - txhash
-   - device signature
-   - Zone 1 Assertion reference
+3. The client MUST produce an Attempt Receipt by signing the txHash
+   using the device private key.
+4. The Attempt Receipt MUST only be produced immediately after a live,
+   blocking user confirmation (e.g., PIN or biometric).
 
 ### 6.4 Backend Verification
 The backend MUST:
 - recompute the canonical payload
-- recompute the txhash
-- verify txhash equality
-- verify the device signature
-- reject reused nonces
+- recompute the txHash
+- verify the Attempt Receipt signature
+- verify freshness and single-use of the nonce / challenge
+- reject reused Attempt Receipts
 
 ### 6.5 Outputs
-- Verified txhash
-- Verified device signature
+- Verified Attempt Receipt
+- Verified txHash
 
 ### 6.6 Guarantees
-Zone 2 guarantees that the payload cannot be modified or replayed
-without detection.
+Zone 2 guarantees that:
+- the exact transaction payload was confirmed
+- the confirmation was performed by a logged-in human
+- the confirmation is single-use and non-replayable
 
 ---
 
-## 7. Zone 3 — Final Authorization
+## 7. Zone 3 — Execution
 
 ### 7.1 Purpose
-Zone 3 enforces explicit bank authorization.
+Zone 3 executes a transaction only after successful verification and
+consumption of a valid Zone 2 Attempt Receipt.
 
-### 7.2 Inputs
-- Verified Zone 1 Assertion
-- Verified txhash
-- Transaction reference
-
-### 7.3 Process
-1. The backend MUST verify Zone 1 and Zone 2 outputs.
-2. Business, risk, and policy checks MUST be applied.
-3. If approved, the bank MUST generate a Final Authorization Token (FAT).
-4. The FAT MUST be cryptographically signed by the bank.
-5. The FAT MUST bind to:
-   - transaction reference
-   - txhash
-   - Zone 1 Assertion reference
-   - issuance time
-   - expiration time
-
-### 7.4 Outputs
-- Final Authorization Token (FAT)
-
-### 7.5 Guarantees
-Zone 3 guarantees that no transaction executes without explicit,
-cryptographically provable bank approval.
+### 7.2 Execution Rules
+- A transaction MUST NOT execute without a valid, unused Attempt Receipt.
+- An Attempt Receipt MUST be bound to a single txHash.
+- An Attempt Receipt MUST be consumed exactly once prior to execution.
+- Reuse of an Attempt Receipt MUST be rejected.
 
 ---
 
-## 8. Execution Rules
-
-- An execution system MUST validate the FAT before execution.
-- A transaction MUST NOT execute without a valid, unexpired FAT.
-- A FAT MUST be bound to a single txhash.
-- A FAT MUST NOT be reusable across transactions.
-
----
-
-## 9. Security Guarantees
+## 8. Security Guarantees
 
 ZONING provides the following guarantees:
 
-- Device-bound authorization
+- Device-bound access
 - Deterministic payload integrity
+- Single-use attempt confirmation
 - Replay resistance
-- Explicit bank consent
 - Cryptographic auditability
 
 ---
 
-## 10. Non-Goals
+## 9. Non-Goals
 
 ZONING does not attempt to:
 - replace authentication mechanisms
@@ -196,7 +175,7 @@ ZONING complements existing systems.
 
 ---
 
-## 11. Versioning
+## 10. Versioning
 
 This document defines **ZONING v1.0**.
 
@@ -205,12 +184,8 @@ the major version.
 
 ---
 
-## 12. Authorship
+## 11. Authorship
 
 ZONING is an original protocol authored by **Geoffrey T. Iloani**.
 
 Public publication establishes authorship and version history.
-
-
-ZONING divides transaction processing into three mandatory zones.
-
