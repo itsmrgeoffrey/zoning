@@ -43,3 +43,35 @@ ZONING addresses this gap by removing sessions as a source of transactional auth
 ---
 
 ## ZONING Architecture
+
+ZONING is organized into three zones. Authentication grants access only; each
+irreversible transaction requires its own fresh, single-use proof.
+
+- **Zone 1 — Identity & Access.** A device keypair is generated in the platform
+  keystore and its public key registered to the user. Grants access, never
+  transactional authority.
+- **Zone 2 — Transaction Attempt Confirmation.** For each transaction the
+  backend issues a challenge bound to the exact (canonical) payload; the device
+  signs it only after a live, blocking user confirmation (biometric/PIN),
+  producing a single-use Attempt Receipt.
+- **Zone 3 — Execution.** The transaction executes only after a valid Attempt
+  Receipt is verified and consumed exactly once — at the innermost execution
+  gate the operator controls.
+
+The full protocol is specified in [`SPEC.md`](SPEC.md).
+
+---
+
+## Reference Implementation
+
+A runnable, tested implementation of the protocol lives in
+[`python/`](python/) — the complete flow plus demonstrations of replay,
+payload-tampering, bypass, forgery, stolen-session, and revoked-device attacks
+all being refused, with the security properties captured as tests.
+
+```bash
+cd python
+pip install -r requirements.txt
+python demo.py          # full flow + attack demonstrations
+python -m pytest -q     # security-property tests
+```
