@@ -182,6 +182,14 @@ This document defines **ZONING v1.0**.
 Future revisions MUST maintain backward compatibility or increment
 the major version.
 
+**Scope note (post-v1.0):** v1.0 frames ZONING for financial *transactions*, its
+flagship application. The protocol is domain-neutral — the same three zones apply
+to any critical state change (*mutation*): a payroll bank-detail change, an IAM
+role grant, a medical-record amendment, a production config change. The generalized
+architecture, deployment postures, and a runnable reference implementation are in
+[`README.md`](README.md) and [`python/`](python/); a future spec revision will fold
+this generalization into the normative text.
+
 ---
 
 ## 11. Authorship
